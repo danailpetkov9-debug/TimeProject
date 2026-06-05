@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="bg">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Мулти-таймер за обратно броене</title>
+    <style>
+        :root {
+            --primary-color: #4a90e2;
+            --success-color: #2ec4b6;
+            --danger-color: #e71d36;
+            --bg-color: #f4f7f6;
+            --card-bg: #ffffff;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 30px;
+        }
+
+        .creator-container {
+            background: var(--card-bg);
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .creator-container input {
+            padding: 8px 12px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+
+        .time-input {
+            width: 60px;
+            text-align: center;
+        }
+
+        button {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .btn-add { background-color: var(--primary-color); color: white; }
+        .btn-start { background-color: var(--success-color); color: white; }
+        .btn-pause { background-color: #ff9f1c; color: white; }
+        .btn-reset { background-color: #718096; color: white; }
+        .btn-delete { background-color: var(--danger-color); color: white; }
+        
+        button:hover { opacity: 0.9; }
+
+        .timers-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+            width: 100%;
+            max-width: 1000px;
+        }
+
+        .timer-card {
+            background: var(--card-bg);
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            display: flex;
+            flex-direction: column;
+            position: relative;
+        }
+
+        .timer-title {
+            font-size: 1.2rem;
+            font-weight: bold;
+            margin: 0 0 10px 0;
+            color: #2d3748;
+            word-break: break-all;
+        }
+
+        .timer-display {
+            font-size: 2.5rem;
+            font-family: monospace;
+            text-align: center;
+            margin: 10px 0;
+            color: #1a202c;
+        }
+
+        .progress-bar-container {
+            background-color: #edf2f7;
+            border-radius: 4px;
+            height: 12px;
+            width: 100%;
+            overflow: hidden;
+            margin-bottom: 15px;
+        }
+
+        .progress-bar {
+            background-color: var(--primary-color);
+            height: 100%;
+            width: 100%;
+            transition: width 1s linear, background-color 0.3s;
+        }
+
+        .timer-controls {
+            display: flex;
+            gap: 8px;
+            justify-content: center;
+        }
+
+        .finished {
+            animation: blink 1s infinite;
+        }
+
+        .finished .progress-bar {
+            background-color: var(--danger-color);
+        }
+
+        @keyframes blink {
+            0% { background-color: var(--card-bg); }
+            50% { background-color: #ffe3e3; }
+            100% { background-color: var(--card-bg); }
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Мулти-таймер за обратно броене</h1>
+
+    <div class="creator-container">
+        <input type="text" id="timerName" placeholder="Име на таймера" value="Таймер">
+        <div>
+            <input type="number" id="hours" class="time-input" min="0" max="23" value="0" placeholder="чч"> :
+            <input type="number" id="minutes" class="time-input" min="0" max="59" value="0" placeholder="мм"> :
+            <input type="number" id="seconds" class="time-input" min="0" max="59" value="5" placeholder="сс">
+        </div>
+        <button class="btn-add" id="addTimerBtn">Добави таймер</button>
+    </div>
+
+    <div class="timers-grid" id="timersContainer"></div>
+
+    <script>
+        
+        let timers = [];
+        let timerIdCounter = 0;
+
+        const timersContainer = document.getElementById('timersContainer');
+        const addTimerBtn = document.getElementById('addTimerBtn');
+
+        function playAlarmSound() {
+            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const oscillator = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+
+            oscillator.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+
+            oscillator.type = 'sine';
+            oscillator.frequency.value = 800;
+            gainNode.gain.setValueAtTime(0.5, audioCtx.currentTime);
+
+            oscillator.start();
+
+            setTimeout(() => {
+                oscillator.stop();
+            }, 500);
+        }
+
+        class Timer {
+            constructor(id, name, totalSeconds) {
+                this.id = id;
+                this.name = name;
+                this.totalSeconds = totalSeconds; 
+                this.remainingSeconds = totalSeconds; 
+                this.intervalId = null;
+                this.isRunning = false;
+
+                this.createDOMElement();
+            }
+
+            createDOMElement() {
+                this.element = document.createElement('div');
+                this.element.className = 'timer-card';
+                this.element.id = `timer-${this.id}`;
+
+                this.element.innerHTML = `
+                    <div class="timer-title">${this.name}</div>
+                    <div class="timer-display">${this.formatTime(this.remainingSeconds)}</div>
+                    <div class="progress-bar-container">
+                        <div class="progress-bar" id="bar-${this.id}"></div>
+                    </div>
+                    <div class="timer-controls">
+                        <button class="btn-start" onclick="timerInstances[${this.id}].start()">Старт</button>
+                        <button class="btn-pause" onclick="timerInstances[${this.id}].pause()">Пауза</button>
+                        <button class="btn-reset" onclick="timerInstances[${this.id}].reset()">Рестарт</button>
+                        <button class="btn-delete" onclick="timerInstances[${this.id}].delete()">Изтрий</button>
+                    </div>
+                `;
+
+                timersContainer.appendChild(this.element);
+                this.updateProgressBar();
+            }
+
+            formatTime(totalSeconds) {
+                const hrs = Math.floor(totalSeconds / 3600);
+                const mins = Math.floor((totalSeconds % 3600) / 60);
+                const secs = totalSeconds % 60;
+
+                return [
+                    hrs.toString().padStart(2, '0'),
+                    mins.toString().padStart(2, '0'),
+                    secs.toString().padStart(2, '0')
+                ].join(':');
+            }
+
+            updateUI() {
+                const display = this.element.querySelector('.timer-display');
+                display.innerText = this.formatTime(this.remainingSeconds);
+                this.updateProgressBar();
+            }
+
+            updateProgressBar() {
+                const progressBar = this.element.querySelector(`#bar-${this.id}`);
+                const percentage = this.totalSeconds > 0 ? (this.remainingSeconds / this.totalSeconds) * 100 : 0;
+                progressBar.style.width = `${percentage}%`;
+            }
+
+            start() {
+                if (this.isRunning || this.remainingSeconds <= 0) return;
+                
+                this.isRunning = true;
+                this.element.classList.remove('finished');
+
+                this.intervalId = setInterval(() => {
+                    if (this.remainingSeconds > 0) {
+                        this.remainingSeconds--;
+                        this.updateUI();
+                    }
+
+                    if (this.remainingSeconds === 0) {
+                        this.stopAndNotify();
+                    }
+                }, 1000);
+            }
+
+            pause() {
+                if (!this.isRunning) return;
+                clearInterval(this.intervalId);
+                this.isRunning = false;
+            }
+
+            reset() {
+                this.pause();
+                this.remainingSeconds = this.totalSeconds;
+                this.element.classList.remove('finished');
+                this.updateUI();
+            }
+
+            stopAndNotify() {
+                clearInterval(this.intervalId);
+                this.isRunning = false;
+                this.element.classList.add('finished');
+                
+                playAlarmSound();
+                
+                setTimeout(() => {
+                    alert(`Таймерът "${this.name}" изтече!`);
+                }, 10);
+            }
+
+            delete() {
+                this.pause();
+                this.element.remove();
+                delete timerInstances[this.id];
+            }
+        }
+
+        const timerInstances = {};
+
+        function handleCreateTimer() {
+            const nameInput = document.getElementById('timerName');
+            const hrsInput = document.getElementById('hours');
+            const minsInput = document.getElementById('minutes');
+            const secsInput = document.getElementById('seconds');
+
+            const hours = parseInt(hrsInput.value) || 0;
+            const minutes = parseInt(minsInput.value) || 0;
+            const seconds = parseInt(secsInput.value) || 0;
+
+            const totalSeconds = (hours * 3600) + (minutes * 60) + seconds;
+
+            if (totalSeconds <= 0) {
+                alert("Моля, въведете време по-голямо от 0 секунди.");
+                return;
+            }
+
+            const name = nameInput.value.trim() || `Таймер ${timerIdCounter + 1}`;
+
+            const newTimer = new Timer(timerIdCounter, name, totalSeconds);
+            timerInstances[timerIdCounter] = newTimer;
+            
+            timerIdCounter++;
+
+            hrsInput.value = 0;
+            minsInput.value = 0;
+            secsInput.value = 5;
+            nameInput.value = "Таймер";
+        }
+
+        addTimerBtn.addEventListener('click', handleCreateTimer);
+
+        window.onload = () => {
+            const defaultTimers = [
+                { name: "Яйца на очи", h: 0, m: 3, s: 0 },
+                { name: "Тренировка", h: 0, m: 45, s: 0 },
+                { name: "Почивка", h: 0, m: 0, s: 10 }
+            ];
+
+            defaultTimers.forEach(t => {
+                const totalSec = (t.h * 3600) + (t.m * 60) + t.s;
+                const newTimer = new Timer(timerIdCounter, t.name, totalSec);
+                timerInstances[timerIdCounter] = newTimer;
+                timerIdCounter++;
+            });
+        };
+    </script>
+</body>
+</html>
